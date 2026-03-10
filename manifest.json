@@ -1,0 +1,15 @@
+{
+  "name": "ZipManager Secure",
+  "short_name": "ZipManager",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#2C3E50",
+  "theme_color": "#2C3E50",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
