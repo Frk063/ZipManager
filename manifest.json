@@ -1,5 +1,5 @@
 {
-  "name": "ZipManager v2.1.0",
+  "name": "ZipManager v2.1.2",
   "short_name": "ZipManager",
   "description": "Gestionnaire d'archives sécurisé (Air-Gap & CRC32)",
   "start_url": "./index.html",
