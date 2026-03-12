@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Gestionnaire d'Archives Sécurisé - v2.1.1 (PWA Autonome)</title>
+    <title>Gestionnaire d'Archives Sécurisé - v2.1.2 (PWA Autonome)</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2C3E50">
@@ -114,7 +114,7 @@
 
 <div class="container">
     <div class="header-container">
-        <h1>Gestionnaire d'Archives ZIP <span>v2.1.1</span></h1>
+        <h1>Gestionnaire d'Archives ZIP <span>v2.1.2</span></h1>
         <p class="subtitle">(Moteur Sécurisé : Air-Gap + Pass-Through Zéro-RAM + CRC32)</p>
         <div id="lib-update-status" class="update-badge">🔄 Vérification du statut...</div>
     </div>
@@ -348,14 +348,19 @@
         try { await dirHandle.getFileHandle(fileName); return true; } catch (e) { return false; } 
     }
 
+    // CORRECTIF FAILLE B : Vérification stricte OOM Disque
     async function checkDiskSpace(totalSourceBytes, existingZipBytes = 0, isUpdating = false) {
         const estZipBytes = totalSourceBytes * 0.85; 
-        let requiredBytes = isUpdating ? (existingZipBytes + estZipBytes) * 1.15 : estZipBytes * 1.15;
+        // 215% d'espace requis en cas de fallback (conservation de l'archive temp + copie miroir)
+        let requiredBytes = isUpdating ? (existingZipBytes + estZipBytes) * 2.15 : estZipBytes * 1.15;
+        
         if (navigator.storage && navigator.storage.estimate) {
-            const estimate = await navigator.storage.estimate(); const freeBytes = estimate.quota - estimate.usage;
+            const estimate = await navigator.storage.estimate(); 
+            const freeBytes = estimate.quota - estimate.usage;
             UI.log(`[SYSTÈME] Espace requis estimé: ${(requiredBytes / 1024 / 1024).toFixed(1)} Mo`);
+            
             if (requiredBytes > freeBytes) {
-                return confirm(`⚠️ ATTENTION SSD: L'espace requis dépasse la tolérance.\nL'opération pourrait échouer.\nVoulez-vous tenter quand même ?`);
+                return confirm(`⚠️ ATTENTION SSD: L'espace requis pour la fusion sécurisée dépasse la marge de sécurité (215%).\n\nSi le système force le fallback de renommage, l'opération crashera.\nVoulez-vous tenter l'opération à vos risques et périls ?`);
             }
         }
         return true;
@@ -363,25 +368,53 @@
 
     const ResumeState = { isActive: false, operation: null, okPaths: new Set(), reset() { this.isActive = false; this.operation = null; this.okPaths.clear(); } };
 
+    // CORRECTIF RAM FOOTPRINT & FAILLE A : Buffer par tableau (anti-OOM) et Sécurité Modale
     const Logger = {
-        csvData: "", operationName: "", sep: ";", archiveName: "",
+        csvChunks: [], operationName: "", sep: ";", archiveName: "", entryCount: 0,
         init(operation, preloadedData = null) {
             this.operationName = operation; this.archiveName = ""; this.sep = document.getElementById('log-separator').value;
-            if (preloadedData) { this.csvData = preloadedData; } else { this.csvData = `sep=${this.sep}\n#OPERATION:${this.operationName}\nCHEMIN${this.sep}NOM_FICHIER${this.sep}TAILLE_OCTETS${this.sep}STATUT\n`; }
+            this.csvChunks = []; this.entryCount = 0;
+            if (preloadedData) { 
+                this.csvChunks.push(preloadedData); 
+            } else { 
+                this.csvChunks.push(`sep=${this.sep}\n#OPERATION:${this.operationName}\nCHEMIN${this.sep}NOM_FICHIER${this.sep}TAILLE_OCTETS${this.sep}STATUT\n`); 
+            }
         },
         setArchiveName(name) { this.archiveName = sanitizeFileName(name); },
         addEntry(safePath, size, status) {
+            // Sécurité anti-OOM RAM : limite stricte à 500 000 fichiers pour le CSV
+            if (this.entryCount > 500000) return; 
+            
             const pathParts = safePath.split('/'); const fileName = pathParts.pop(); const folderPath = pathParts.join('/') || "Racine";
-            this.csvData += `"${folderPath.replace(/"/g, '""')}"${this.sep}"${fileName.replace(/"/g, '""')}"${this.sep}${size}${this.sep}${status}\n`;
+            this.csvChunks.push(`"${folderPath.replace(/"/g, '""')}"${this.sep}"${fileName.replace(/"/g, '""')}"${this.sep}${size}${this.sep}${status}\n`);
+            this.entryCount++;
         },
         exportAndShowModal(title, desc, isError = false) {
-            const blob = new Blob(['\uFEFF', this.csvData], { type: 'text/csv;charset=utf-8;' }); const url = window.URL.createObjectURL(blob);
+            // Assemblage du Blob sans saturer la RAM
+            this.csvChunks.unshift('\uFEFF'); // BOM pour Excel
+            const blob = new Blob(this.csvChunks, { type: 'text/csv;charset=utf-8;' }); 
+            const url = window.URL.createObjectURL(blob);
+            
             const a = document.createElement('a'); a.href = url;
             a.download = `Log_${this.operationName}${this.archiveName ? `_${this.archiveName}` : ""}_${new Date().getTime()}.csv`;
             a.click(); window.URL.revokeObjectURL(url);
-            const modal = document.getElementById('modal-overlay'); const titleEl = document.getElementById('modal-title');
-            titleEl.innerText = title; titleEl.style.color = isError ? "var(--danger)" : "var(--success)";
-            document.getElementById('modal-desc').innerHTML = `${desc}<br><br><strong>Vérifiez vos téléchargements.</strong>`;
+            
+            const modal = document.getElementById('modal-overlay'); 
+            const titleEl = document.getElementById('modal-title');
+            titleEl.innerText = title; 
+            titleEl.style.color = isError ? "var(--danger)" : "var(--success)";
+            
+            // CORRECTIF FAILLE A (XSS) : Création sécurisée de l'arbre DOM (aucun innerHTML)
+            const descEl = document.getElementById('modal-desc');
+            descEl.innerHTML = ''; // Nettoyage propre
+            descEl.appendChild(document.createTextNode(desc));
+            descEl.appendChild(document.createElement('br'));
+            descEl.appendChild(document.createElement('br'));
+            
+            const strongTag = document.createElement('strong');
+            strongTag.textContent = "Vérifiez vos téléchargements.";
+            descEl.appendChild(strongTag);
+            
             modal.style.display = 'flex';
         }
     };
@@ -428,7 +461,7 @@
     document.getElementById('btn-confirm-resume').addEventListener('click', () => { ResumeState.isActive = true; document.getElementById('resume-ready-zone').style.display = 'none'; alert(`Sélectionnez l'Archive ZIP.`); document.getElementById('input-zip').click(); });
 
     // =========================================================
-    // MODULE 1 : CRÉATION ET ROUTAGE INTELLIGENT (V2.1.1)
+    // MODULE 1 : CRÉATION ET ROUTAGE INTELLIGENT (V2.1.2)
     // =========================================================
     let filesToZip = [];
     document.getElementById('input-folder').addEventListener('change', (e) => {
@@ -465,7 +498,6 @@
             const existsZ01 = await checkFileExists(dirHandle, `${safeBaseName}.z01`) || await checkFileExists(dirHandle, `${safeBaseName}.z001`);
             const exists = existsZip || existsZ01;
             
-            // Faille A: Conflit Multi-volume / Fusion
             if (exists && collisionMode === 'merge') {
                 if (splitSize > 0) throw new Error("Création multi-volumes incompatible avec la fusion."); 
                 if (existsZ01) throw new Error("Archive cible multi-volumes : Fusion impossible.");
@@ -475,7 +507,6 @@
             for (const f of filesToZip) {
                 let safePath = f.webkitRelativePath.replace(/^([a-zA-Z]:)?[\/\\]+/, "").replace(/\.\.[\/\\]/g, "");
                 if (pathMode === 'flat') safePath = f.name; 
-                // Ne pas scanner les fichiers de travail ZipManager
                 if (safePath !== masterZipName && !safePath.includes(`${safeBaseName}_temp_`)) {
                     localFileMap.set(safePath, f);
                 }
@@ -516,7 +547,6 @@
 
             let passThroughCount = 0; let orphanCount = 0;
 
-            // --- ROUTAGE INTELLIGENT (CRC32 & ZERO-RAM) ---
             if (exists && collisionMode === 'merge' && existsZip && !existsZ01) {
                 UI.log(`[ANALYSE] Lecture de l'archive (Contrôle d'intégrité CRC32)...`);
                 const oldZipReader = new zip.ZipReader(new zip.BlobReader(await (await dirHandle.getFileHandle(masterZipName)).getFile()), { password: pwd || null });
@@ -533,7 +563,7 @@
                             const localCRC = await getFileCRC32(localMatch);
                             if (localCRC === entry.crc32) {
                                 action = 'PASS-THROUGH'; 
-                                localFileMap.delete(entry.filename); // Traité
+                                localFileMap.delete(entry.filename); 
                             } else {
                                 UI.log(`[MODIFIÉ] ${entry.filename} (Recompression requise)`, false, true);
                             }
@@ -541,16 +571,10 @@
                     } else { action = 'PASS-THROUGH'; orphanCount++; }
 
                     if (action === 'PASS-THROUGH') {
-                        // Faille B : Prévention OOM avec TransformStream (Zéro-RAM)
                         const { readable, writable: streamWritable } = new TransformStream();
-                        
-                        // Faille C : Disjoncteur Anti-Deadlock
-                        entry.getData(new zip.WritableStreamWriter(streamWritable), { password: pwd || null }).catch(e => {
-                            streamWritable.abort(e);
-                        });
+                        entry.getData(new zip.WritableStreamWriter(streamWritable), { password: pwd || null }).catch(e => { streamWritable.abort(e); });
 
                         try {
-                            // Faille D : Rechiffrement systématique
                             await zipWriter.add(entry.filename, new zip.ReadableStreamReader(readable), { level: compLevel, password: pwd || null });
                             Logger.addEntry(entry.filename, entry.uncompressedSize, "SYNC_CACHED"); 
                             passThroughCount++;
@@ -564,7 +588,6 @@
                 UI.log(`[BILAN ROUTAGE] ${passThroughCount} copiés (Intègres), ${orphanCount} orphelins gérés.`);
             }
 
-            // --- COMPRESSION DES NOUVEAUTÉS ---
             const remainingFiles = Array.from(localFileMap.entries());
             const totalRemaining = remainingFiles.length;
             
