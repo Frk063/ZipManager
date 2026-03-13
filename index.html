@@ -390,16 +390,13 @@
         },
         setArchiveName(name) { this.archiveName = sanitizeFileName(name); },
         addEntry(safePath, size, status) {
-            // Sécurité anti-OOM RAM : limite stricte à 500 000 fichiers pour le CSV
             if (this.entryCount > 500000) return; 
-            
             const pathParts = safePath.split('/'); const fileName = pathParts.pop(); const folderPath = pathParts.join('/') || "Racine";
             this.csvChunks.push(`"${folderPath.replace(/"/g, '""')}"${this.sep}"${fileName.replace(/"/g, '""')}"${this.sep}${size}${this.sep}${status}\n`);
             this.entryCount++;
         },
         exportAndShowModal(title, desc, isError = false) {
-            // Assemblage du Blob sans saturer la RAM
-            this.csvChunks.unshift('\uFEFF'); // BOM pour Excel
+            this.csvChunks.unshift('\uFEFF'); 
             const blob = new Blob(this.csvChunks, { type: 'text/csv;charset=utf-8;' }); 
             const url = window.URL.createObjectURL(blob);
             
@@ -412,9 +409,8 @@
             titleEl.innerText = title; 
             titleEl.style.color = isError ? "var(--danger)" : "var(--success)";
             
-            // CORRECTIF FAILLE A (XSS) : Création sécurisée de l'arbre DOM (aucun innerHTML)
             const descEl = document.getElementById('modal-desc');
-            descEl.innerHTML = ''; // Nettoyage propre
+            descEl.innerHTML = ''; 
             descEl.appendChild(document.createTextNode(desc));
             descEl.appendChild(document.createElement('br'));
             descEl.appendChild(document.createElement('br'));
@@ -518,11 +514,8 @@
             const localFileMap = new Map();
             let totalSourceBytes = 0;
 
-            // Filtre de Confidentialité "Privacy by Design"
             for (const f of filesToZip) {
                 let safePath = f.webkitRelativePath.replace(/^([a-zA-Z]:)?[\/\\]+/, "").replace(/\.\.[\/\\]/g, "");
-                
-                // Détection des fichiers/dossiers cachés et système
                 const pathParts = safePath.split('/');
                 const isHidden = pathParts.some(part => part.startsWith('.') && part !== '.' && part !== '..') || f.name.toLowerCase() === 'thumbs.db' || f.name.toLowerCase() === 'desktop.ini';
                 
@@ -530,7 +523,7 @@
                     if (pathMode === 'flat') safePath = f.name; 
                     if (safePath !== masterZipName && !safePath.includes(`${safeBaseName}_temp_`)) {
                         localFileMap.set(safePath, f);
-                        totalSourceBytes += f.size; // On ne calcule le poids que pour les fichiers conservés
+                        totalSourceBytes += f.size; 
                     }
                 }
             }
@@ -553,18 +546,21 @@
                 }
             }
 
+            // --- CORRECTIF STREAM LOCK (ZipWriter Wrapping) ---
             if (splitSize > 0) {
-                async function* splitWriterGenerator() {
+                zipWriter = new zip.ZipWriter(new zip.SplitDataWriter(async function* () {
                     while (true) {
                         partCount++; const ext = partCount.toString().padStart(3, '0');
                         UI.log(`[VOLUME] Création segment : .z${ext}`);
-                        yield { writable: await (await dirHandle.getFileHandle(`${safeBaseName}.z${ext}`, { create: true })).createWritable(), maxSize: splitSize };
+                        const handle = await dirHandle.getFileHandle(`${safeBaseName}.z${ext}`, { create: true });
+                        // Encapsulation stricte dans WritableStreamWriter
+                        yield new zip.WritableStreamWriter(await handle.createWritable());
                     }
-                }
-                zipWriter = new zip.ZipWriter(splitWriterGenerator(), { password: pwd || null });
+                }(), splitSize), { password: pwd || null });
             } else {
                 writableStream = await (await dirHandle.getFileHandle(targetZipName, { create: true })).createWritable();
-                zipWriter = new zip.ZipWriter(writableStream, { password: pwd || null });
+                // Encapsulation stricte pour éviter l'erreur de double verrouillage
+                zipWriter = new zip.ZipWriter(new zip.WritableStreamWriter(writableStream), { password: pwd || null });
             }
 
             let passThroughCount = 0; let orphanCount = 0;
@@ -594,9 +590,11 @@
 
                     if (action === 'PASS-THROUGH') {
                         const { readable, writable: streamWritable } = new TransformStream();
-                        entry.getData(new zip.WritableStreamWriter(streamWritable), { password: pwd || null }).catch(e => { streamWritable.abort(e); });
+                        // Encapsulation stricte du flux d'entrée
+                        entry.getData(new zip.WritableStreamWriter(streamWritable), { password: pwd || null }).catch(e => { try { streamWritable.abort(e); } catch(err){} });
 
                         try {
+                            // Encapsulation stricte du flux de sortie
                             await zipWriter.add(entry.filename, new zip.ReadableStreamReader(readable), { level: compLevel, password: pwd || null });
                             Logger.addEntry(entry.filename, entry.uncompressedSize, "SYNC_CACHED"); 
                             passThroughCount++;
@@ -729,7 +727,9 @@
                             const pathParts = safeName.split('/'); const fileName = pathParts.pop(); let currentHandle = dirHandle;
                             for (const folder of pathParts) { currentHandle = await currentHandle.getDirectoryHandle(folder, { create: true }); }
                             currentExtractWritable = await (await currentHandle.getFileHandle(fileName, { create: true })).createWritable();
-                            await entry.getData(currentExtractWritable); currentExtractWritable = null;
+                            // Encapsulation stricte ici aussi !
+                            await entry.getData(new zip.WritableStreamWriter(currentExtractWritable)); 
+                            currentExtractWritable = null;
                             Logger.addEntry(safeName, entry.uncompressedSize, "EXTRACT_OK"); if (processed % 5 === 0) UI.log(`[EXTRAIT] ${safeName}`);
                         }
                     } catch (err) { 
