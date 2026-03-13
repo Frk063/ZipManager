@@ -2,7 +2,7 @@
 
 ## 1. Synthèse des fonctionnalités
 **Mode d'emploi et livrables associés :**
-Ce dépôt contient le code source de "ZipManager v2.1.2", un gestionnaire d'archives ZIP sous la forme d'une PWA (Progressive Web App) autonome (Air-Gap).
+Ce dépôt contient le code source de "ZipManager v2.1.3", un gestionnaire d'archives ZIP sous la forme d'une PWA (Progressive Web App) autonome (Air-Gap).
 L'outil permet de :
 - Créer ou synchroniser des archives (en un seul volume ou multi-volumes) directement dans le navigateur, sans utiliser le réseau, en se basant sur `zip.js`.
 - Gérer intelligemment les mises à jour d'archives ZIP existantes via une méthode de type "Pass-Through" et vérification d'intégrité (CRC32).
@@ -26,12 +26,35 @@ Livrable : L'application met à disposition les fichiers `index.html` (interface
   - *Problème / Constat :* L'application possédait déjà une fonction de type `sanitizeFileName()` qui gère les cas les plus fréquents pour l'évitement de Path Traversal ou Zip-Slip dans les noms de fichiers. La purge des DOM renforce encore cette sécurité.
 
 ## 3. Cahier de test
-**Plan de validation des fonctionnalités :**
-1. **Création Atomique :** Choisir un dossier source, entrer un nom d'archive. Observer (avec les dev tools ou l'API File System) la génération d'un fichier `.tmp`. Vérifier que le fichier est bien renommé en `.zip` (ou `.z01`, etc.) uniquement à la fin sans erreur.
-2. **Simulation d'erreur :** Lancer une création, simuler un arrêt I/O ou rafraîchir la page (ce qui déclenchera le `beforeunload` ou un rejet de flux). S'assurer que le système de nettoyage en bloc `catch` détruit bien les fichiers `.tmp`.
-3. **Extraction Atomique :** Ouvrir une archive et lancer l'extraction vers un répertoire local. Valider que les fichiers sont temporairement suffixés `.tmp` puis correctement renommés.
-4. **Purge RAM et Réinitialisation Globale :** Entrer un mot de passe et sélectionner des dossiers. Cliquer sur "Réinitialisation globale". Valider que les champs `input`, les états de mot de passe (y compris l'œil) et les variables globales sont effacés.
-5. **Mode Air-Gap :** S'assurer qu'aucun appel réseau sortant non prévu n'est effectué pour les ressources critiques.
+**Protocole pas-à-pas ultra précis de validation RedTeam :**
+
+1. **Vérification de la Création Atomique (Fail-Safe) :**
+   - Lancer l'application (`python3 -m http.server 8000`).
+   - Ouvrir les DevTools (F12) du navigateur.
+   - Sélectionner un dossier source volumineux via le bouton "1. SÉLECTIONNER DOSSIER SOURCE".
+   - Saisir un nom d'archive (ex: `TestAtomic`).
+   - Lancer le traitement ("2. CHOISIR DESTINATION ET TRAITER") et sélectionner un dossier de destination.
+   - PENDANT l'écriture, inspecter le dossier de destination dans votre explorateur de fichiers OS : valider la présence de `TestAtomic.zip.tmp`.
+   - Attendre la fin du processus. Vérifier que le fichier `TestAtomic.zip.tmp` a été renommé instantanément en `TestAtomic.zip`.
+
+2. **Vérification de la Résilience aux Crashs (Disaster Recovery) :**
+   - Reprendre l'étape 1.
+   - PENDANT l'écriture (quand la barre de progression avance), forcer la fermeture de la page ou simuler une déconnexion matérielle du SSD virtuel.
+   - Ouvrir le dossier de destination : s'assurer que le système a intercepté l'interruption ou que le bloc `catch` (via simulation d'erreur logicielle) a correctement effacé le fichier résiduel `.tmp`.
+
+3. **Vérification de la Purge RAM (Sanitization) :**
+   - Ouvrir l'application.
+   - Saisir un mot de passe dans "Mot de passe - Optionnel" (ex: `Secret123!`).
+   - Cocher "Afficher" pour valider qu'il est en mémoire vive dans le DOM.
+   - Sélectionner des fichiers bidons pour peupler les variables `filesToZip` (création) et `filesToExtract` (action).
+   - Cliquer sur le nouveau bouton rouge "🔄 Réinitialisation globale" en haut de la page.
+   - Résultat attendu : Les champs de mot de passe sont vides et le type de l'input est réinitialisé (masqué). Les fichiers sélectionnés sont effacés (`0 fichier(s) prêt(s)`). Une recherche de `Secret123!` dans la heap memory via les DevTools ne doit remonter que l'input initial et aucune variable de rétention.
+
+4. **Vérification de l'Extraction Atomique :**
+   - Uploader une archive `.zip` saine.
+   - Sélectionner "Extraire vers dossier local".
+   - Lancer l'extraction et choisir un répertoire.
+   - S'assurer (via explorateur) que chaque fichier extrait porte l'extension temporaire `.tmp` avant d'être finalisé sous son nom d'origine.
 
 ## 4. RETEX / SWOT
 **Synthèse des forces, faiblesses, opportunités et menaces de cette version :**
