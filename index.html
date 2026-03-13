@@ -194,6 +194,7 @@
                     <option value="9">Maximale</option>
                 </select>
             </div>
+            
             <div class="form-group">
                 <label for="create-path">📂 Structure :</label>
                 <select id="create-path">
@@ -201,6 +202,13 @@
                     <option value="flat">Aplatir</option>
                 </select>
             </div>
+
+            <div class="form-group" style="margin-top: -5px; margin-bottom: 20px;">
+                <label style="font-weight: normal; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.9em;">
+                    <input type="checkbox" id="include-hidden"> 👁️ Inclure les fichiers cachés (.env, .git, Thumbs.db)
+                </label>
+            </div>
+
             <label for="input-folder" class="btn-zone btn-select">1. SÉLECTIONNER DOSSIER SOURCE</label>
             <input type="file" id="input-folder" class="hidden-input" webkitdirectory directory multiple>
             <div id="create-ready-zone" class="ready-zone">
@@ -466,7 +474,10 @@
     let filesToZip = [];
     document.getElementById('input-folder').addEventListener('change', (e) => {
         filesToZip = Array.from(e.target.files);
-        if (filesToZip.length > 0) { document.getElementById('create-file-count').innerText = `${filesToZip.length} fichier(s) scanné(s).`; document.getElementById('create-ready-zone').style.display = 'block'; }
+        if (filesToZip.length > 0) { 
+            document.getElementById('create-file-count').innerText = `${filesToZip.length} fichier(s) détecté(s) au total.`; 
+            document.getElementById('create-ready-zone').style.display = 'block'; 
+        }
     });
 
     document.getElementById('btn-start-create').addEventListener('click', async () => {
@@ -480,6 +491,7 @@
         const pathMode = document.getElementById('create-path').value;
         const splitSize = parseInt(document.getElementById('create-volume').value, 10);
         const collisionMode = document.getElementById('create-collision').value; 
+        const includeHidden = document.getElementById('include-hidden').checked;
 
         UI.reset(); Logger.init("Creation_Sync"); Logger.setArchiveName(safeBaseName);
         document.getElementById('create-ready-zone').style.display = 'none'; document.getElementById('input-folder').value = ""; 
@@ -504,15 +516,25 @@
             }
             
             const localFileMap = new Map();
+            let totalSourceBytes = 0;
+
+            // Filtre de Confidentialité "Privacy by Design"
             for (const f of filesToZip) {
                 let safePath = f.webkitRelativePath.replace(/^([a-zA-Z]:)?[\/\\]+/, "").replace(/\.\.[\/\\]/g, "");
-                if (pathMode === 'flat') safePath = f.name; 
-                if (safePath !== masterZipName && !safePath.includes(`${safeBaseName}_temp_`)) {
-                    localFileMap.set(safePath, f);
+                
+                // Détection des fichiers/dossiers cachés et système
+                const pathParts = safePath.split('/');
+                const isHidden = pathParts.some(part => part.startsWith('.') && part !== '.' && part !== '..') || f.name.toLowerCase() === 'thumbs.db' || f.name.toLowerCase() === 'desktop.ini';
+                
+                if (!isHidden || includeHidden) {
+                    if (pathMode === 'flat') safePath = f.name; 
+                    if (safePath !== masterZipName && !safePath.includes(`${safeBaseName}_temp_`)) {
+                        localFileMap.set(safePath, f);
+                        totalSourceBytes += f.size; // On ne calcule le poids que pour les fichiers conservés
+                    }
                 }
             }
 
-            const totalSourceBytes = filesToZip.reduce((acc, f) => acc + f.size, 0);
             let existingZipBytes = 0;
             if (existsZip && !existsZ01) { existingZipBytes = (await (await dirHandle.getFileHandle(masterZipName)).getFile()).size; }
             if (!(await checkDiskSpace(totalSourceBytes, existingZipBytes, exists && collisionMode === 'merge'))) throw new Error("Annulé (Espace disque).");
