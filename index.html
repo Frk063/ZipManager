@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Gestionnaire d'Archives Sécurisé - v2.1.2 (PWA Autonome)</title>
+    <title>Gestionnaire d'Archives Sécurisé - v2.1.3 (PWA Autonome)</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2C3E50">
@@ -114,9 +114,10 @@
 
 <div class="container">
     <div class="header-container">
-        <h1>Gestionnaire d'Archives ZIP <span>v2.1.2</span></h1>
+        <h1>Gestionnaire d'Archives ZIP <span>v2.1.3</span></h1>
         <p class="subtitle">(Moteur Sécurisé : Air-Gap + Pass-Through Zéro-RAM + CRC32)</p>
-        <div id="lib-update-status" class="update-badge">🔄 Vérification du statut...</div>
+        <div id="lib-update-status" class="update-badge">🔄 Vérification du statut...</div><br>
+        <button id="btn-reset-global" class="btn-zone" style="background: var(--danger); color: white; width: auto; display: inline-block; padding: 5px 15px; font-size: 0.9em; margin-bottom: 20px;">🔄 Réinitialisation globale</button>
     </div>
     
     <div class="notice">
@@ -154,7 +155,10 @@
             
             <div class="form-group" style="background: var(--notice-bg); padding: 10px; border-radius: 6px; border-left: 4px solid var(--primary);">
                 <label for="create-filename" style="color: var(--primary);">🏷️ Nom de l'archive (Obligatoire, sans .zip) :</label>
-                <input type="text" id="create-filename" placeholder="Ex: Projet_Compta_2026">
+                <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+                    <input type="text" id="create-filename" placeholder="Ex: Projet_Compta_2026" style="flex-grow: 1;">
+                </div>
+                <button id="btn-select-existing" class="btn-zone btn-select" style="padding: 8px; font-size: 0.9em; background: var(--surface);">📂 Ou sélectionner une archive existante (Auto-remplissage)</button>
             </div>
 
             <div class="form-group">
@@ -209,7 +213,7 @@
                 </label>
             </div>
 
-            <label for="input-folder" class="btn-zone btn-select">1. SÉLECTIONNER DOSSIER SOURCE</label>
+            <label for="input-folder" id="btn-select-source-folder" class="btn-zone btn-select" style="pointer-events: none; opacity: 0.5;">1. SÉLECTIONNER DOSSIER SOURCE</label>
             <input type="file" id="input-folder" class="hidden-input" webkitdirectory directory multiple>
             <div id="create-ready-zone" class="ready-zone">
                 <div id="create-file-count" class="file-count" style="color: var(--success);">0 fichier(s) prêt(s)</div>
@@ -269,7 +273,29 @@
     // =========================================================
     const EMBEDDED_ZIP_VERSION = "2.8.21";
 
+    // Fonction de rafraîchissement profond (Purge RAM initiale)
+    function deepReset() {
+        filesToZip = [];
+        filesToExtract = [];
+        document.getElementById('create-filename').value = '';
+        document.getElementById('create-pwd').value = '';
+        document.getElementById('action-pwd').value = '';
+        document.getElementById('input-folder').value = '';
+        document.getElementById('input-zip').value = '';
+        document.getElementById('create-ready-zone').style.display = 'none';
+        document.getElementById('action-ready-zone').style.display = 'none';
+        document.getElementById('btn-select-source-folder').style.pointerEvents = 'none';
+        document.getElementById('btn-select-source-folder').style.opacity = '0.5';
+        UI.clearPasswords();
+        UI.reset();
+        ResumeState.reset();
+        window.preloadedCsvData = "";
+    }
+
     window.addEventListener('DOMContentLoaded', async () => {
+        deepReset(); // Rafraîchissement profond au démarrage
+        UI.log("[SYSTÈME] Démarrage sécurisé : RAM et DOM purgés.", false, true);
+
         const statusBadge = document.getElementById('lib-update-status');
         if (typeof zip === 'undefined') {
             statusBadge.innerHTML = `🚨 Erreur Critique : Le moteur zip.js est absent ou le Base64 est corrompu.`;
@@ -423,6 +449,11 @@
         }
     };
 
+    document.getElementById('btn-reset-global').addEventListener('click', () => {
+        deepReset();
+        UI.log("[SYSTÈME] Réinitialisation globale effectuée, RAM purgée.", false, true);
+    });
+
     const UI = {
         bar: document.getElementById('progress-bar'), text: document.getElementById('progress-text'), status: document.getElementById('stat-status'), errors: document.getElementById('stat-errors'), console: document.getElementById('log-console'), errorCount: 0,
         reset() { this.bar.style.width = '0%'; this.bar.style.background = 'var(--primary)'; this.text.innerText = '0% (0 fichier)'; this.status.innerText = 'Statut : Démarrage...'; this.status.style.color = 'var(--primary)'; this.errorCount = 0; this.errors.innerText = `Erreurs : 0`; this.console.innerHTML = ''; },
@@ -467,6 +498,47 @@
     // =========================================================
     // MODULE 1 : CRÉATION ET ROUTAGE INTELLIGENT (V2.1.2)
     // =========================================================
+
+    // Bouton de sélection d'une archive existante pour la mise à jour
+    document.getElementById('btn-select-existing').addEventListener('click', async () => {
+        if (!window.showOpenFilePicker) {
+            alert("L'API File System n'est pas supportée sur ce navigateur.");
+            return;
+        }
+        try {
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [{
+                    description: 'Fichier ZIP',
+                    accept: {'application/zip': ['.zip']}
+                }],
+                multiple: false
+            });
+            // Auto-remplissage du champ de nom sans l'extension
+            const nameField = document.getElementById('create-filename');
+            nameField.value = fileHandle.name.replace(/\.[^/.]+$/, "");
+            nameField.dispatchEvent(new Event('input')); // Déclenche l'activation du bouton
+            document.getElementById('create-collision').value = 'merge'; // Propose "Fusion" par défaut
+            UI.log(`[SYSTÈME] Archive existante sélectionnée : ${fileHandle.name}`);
+        } catch (e) {
+            if (e.name !== 'AbortError') {
+                console.error(e);
+                UI.log("[ERREUR] Impossible de sélectionner l'archive.", true);
+            }
+        }
+    });
+
+    // Activation conditionnelle du bouton de sélection de dossier
+    document.getElementById('create-filename').addEventListener('input', (e) => {
+        const btn = document.getElementById('btn-select-source-folder');
+        if (e.target.value.trim().length > 0) {
+            btn.style.pointerEvents = 'auto';
+            btn.style.opacity = '1';
+        } else {
+            btn.style.pointerEvents = 'none';
+            btn.style.opacity = '0.5';
+        }
+    });
+
     let filesToZip = [];
     document.getElementById('input-folder').addEventListener('change', (e) => {
         filesToZip = Array.from(e.target.files);
@@ -482,7 +554,7 @@
         if (!rawName) { alert("Nom d'archive obligatoire."); return; }
         const safeBaseName = sanitizeFileName(rawName);
         
-        const pwd = document.getElementById('create-pwd').value;
+        let pwd = document.getElementById('create-pwd').value;
         const compLevel = parseInt(document.getElementById('create-level').value, 10);
         const pathMode = document.getElementById('create-path').value;
         const splitSize = parseInt(document.getElementById('create-volume').value, 10);
@@ -551,14 +623,14 @@
                 zipWriter = new zip.ZipWriter(new zip.SplitDataWriter(async function* () {
                     while (true) {
                         partCount++; const ext = partCount.toString().padStart(3, '0');
-                        UI.log(`[VOLUME] Création segment : .z${ext}`);
-                        const handle = await dirHandle.getFileHandle(`${safeBaseName}.z${ext}`, { create: true });
+                        UI.log(`[VOLUME] Création segment atomique : .z${ext}.tmp`);
+                        const handle = await dirHandle.getFileHandle(`${safeBaseName}.z${ext}.tmp`, { create: true });
                         // Encapsulation stricte dans WritableStreamWriter
                         yield new zip.WritableStreamWriter(await handle.createWritable());
                     }
                 }(), splitSize), { password: pwd || null });
             } else {
-                writableStream = await (await dirHandle.getFileHandle(targetZipName, { create: true })).createWritable();
+                writableStream = await (await dirHandle.getFileHandle(targetZipName + '.tmp', { create: true })).createWritable();
                 // Encapsulation stricte pour éviter l'erreur de double verrouillage
                 zipWriter = new zip.ZipWriter(new zip.WritableStreamWriter(writableStream), { password: pwd || null });
             }
@@ -636,20 +708,33 @@
             // --- FINALISATION UX ---
             if (splitSize > 0 && dirHandle) {
                 try {
-                    const lastExt = partCount.toString().padStart(3, '0'); const lastFileHandle = await dirHandle.getFileHandle(`${safeBaseName}.z${lastExt}`);
-                    const finalZipHandle = await dirHandle.getFileHandle(masterZipName, { create: true });
-                    await (await lastFileHandle.getFile()).stream().pipeTo(await finalZipHandle.createWritable());
-                    await dirHandle.removeEntry(lastFileHandle.name);
-                } catch (e) { UI.log(`[ATTENTION] Échec du renommage automatique.`, false, true); }
-            } else if (exists && collisionMode === 'merge') {
-                UI.log(`[SÉCURITÉ] Remplacement atomique de l'ancienne archive...`);
-                await dirHandle.removeEntry(masterZipName);
-                const tempHandle = await dirHandle.getFileHandle(targetZipName);
-                if (typeof tempHandle.move === 'function') { await tempHandle.move(masterZipName); } 
-                else {
+                    for (let i = 1; i <= partCount; i++) {
+                        const ext = i.toString().padStart(3, '0');
+                        const tmpName = `${safeBaseName}.z${ext}.tmp`;
+                        const finalName = (i === partCount) ? masterZipName : `${safeBaseName}.z${ext}`;
+                        const tmpHandle = await dirHandle.getFileHandle(tmpName);
+                        if (typeof tmpHandle.move === 'function') {
+                            await tmpHandle.move(finalName);
+                        } else {
+                            const finalHandle = await dirHandle.getFileHandle(finalName, { create: true });
+                            await (await tmpHandle.getFile()).stream().pipeTo(await finalHandle.createWritable());
+                            await dirHandle.removeEntry(tmpName);
+                        }
+                    }
+                } catch (e) { UI.log(`[ATTENTION] Échec du renommage atomique.`, false, true); }
+            } else {
+                UI.log(`[SÉCURITÉ] Finalisation atomique de l'archive...`);
+                const tmpHandle = await dirHandle.getFileHandle(targetZipName + '.tmp');
+                if (exists && collisionMode === 'merge') {
+                    await dirHandle.removeEntry(masterZipName);
+                }
+
+                if (typeof tmpHandle.move === 'function') {
+                    await tmpHandle.move(masterZipName);
+                } else {
                     const finalHandle = await dirHandle.getFileHandle(masterZipName, { create: true });
-                    await (await tempHandle.getFile()).stream().pipeTo(await finalHandle.createWritable());
-                    await dirHandle.removeEntry(targetZipName);
+                    await (await tmpHandle.getFile()).stream().pipeTo(await finalHandle.createWritable());
+                    await dirHandle.removeEntry(targetZipName + '.tmp');
                 }
             }
             UI.finish("Archive synchronisée avec succès !");
@@ -658,8 +743,18 @@
         } catch (err) {
             UI.log(`[CRASH] ${err.message}`, true);
             if (writableStream) { try { await writableStream.abort(); } catch(e) {} }
+            if (dirHandle) {
+                if (splitSize > 0) {
+                    for (let i = 1; i <= partCount; i++) {
+                        const ext = i.toString().padStart(3, '0');
+                        try { await dirHandle.removeEntry(`${safeBaseName}.z${ext}.tmp`); } catch (e) {}
+                    }
+                } else {
+                    try { await dirHandle.removeEntry(targetZipName + '.tmp'); } catch (e) {}
+                }
+            }
             Logger.exportAndShowModal("Interrompu", `L'opération a échoué : ${err.message}`, true);
-        } finally { filesToZip = []; UI.clearPasswords(); document.getElementById('create-filename').value = ''; System.allowSleep(); currentOperationAbortController = null; }
+        } finally { filesToZip = []; UI.clearPasswords(); document.getElementById('create-filename').value = ''; System.allowSleep(); currentOperationAbortController = null; pwd = null; }
     });
 
     // =========================================================
@@ -678,7 +773,7 @@
     document.getElementById('btn-start-action').addEventListener('click', async () => {
         if (!filesToExtract.length) return;
         const action = ResumeState.isActive ? ResumeState.operation : document.getElementById('action-type').value;
-        const pwd = document.getElementById('action-pwd').value;
+        let pwd = document.getElementById('action-pwd').value;
         UI.reset();
 
         let mainZipFile = filesToExtract.find(f => f.name.toLowerCase().endsWith('.zip')) || filesToExtract[0];
@@ -726,10 +821,20 @@
                         } else if (action === 'Extraction') {
                             const pathParts = safeName.split('/'); const fileName = pathParts.pop(); let currentHandle = dirHandle;
                             for (const folder of pathParts) { currentHandle = await currentHandle.getDirectoryHandle(folder, { create: true }); }
-                            currentExtractWritable = await (await currentHandle.getFileHandle(fileName, { create: true })).createWritable();
+                            currentExtractWritable = await (await currentHandle.getFileHandle(fileName + '.tmp', { create: true })).createWritable();
                             // Encapsulation stricte ici aussi !
                             await entry.getData(new zip.WritableStreamWriter(currentExtractWritable)); 
                             currentExtractWritable = null;
+
+                            const tmpHandle = await currentHandle.getFileHandle(fileName + '.tmp');
+                            if (typeof tmpHandle.move === 'function') {
+                                await tmpHandle.move(fileName);
+                            } else {
+                                const finalHandle = await currentHandle.getFileHandle(fileName, { create: true });
+                                await (await tmpHandle.getFile()).stream().pipeTo(await finalHandle.createWritable());
+                                await currentHandle.removeEntry(fileName + '.tmp');
+                            }
+
                             Logger.addEntry(safeName, entry.uncompressedSize, "EXTRACT_OK"); if (processed % 5 === 0) UI.log(`[EXTRAIT] ${safeName}`);
                         }
                     } catch (err) { 
@@ -737,6 +842,13 @@
                         if (err.message.toLowerCase().includes('password')) throw new Error("Mot de passe incorrect.");
                         UI.log(`[ERREUR] ${entry.filename}`, true); 
                         if (currentExtractWritable) { try { await currentExtractWritable.abort(); currentExtractWritable = null; } catch(e) {} }
+                        if (action === 'Extraction' && dirHandle) {
+                            try {
+                                const pathParts = safeName.split('/'); const fileName = pathParts.pop(); let currentHandle = dirHandle;
+                                for (const folder of pathParts) { currentHandle = await currentHandle.getDirectoryHandle(folder); }
+                                await currentHandle.removeEntry(fileName + '.tmp');
+                            } catch (e) {}
+                        }
                     }
                 }
                 processed++; UI.updateProgress(Math.round((processed / total) * 100), `${processed} / ${total}`);
@@ -748,7 +860,7 @@
             if (currentExtractWritable) { try { await currentExtractWritable.abort(); } catch(e) {} }
             if (zipReader) { try { await zipReader.close(); } catch(e) {} }
             Logger.exportAndShowModal("Interrompu", `Échec : ${err.message}`, true);
-        } finally { UI.clearPasswords(); System.allowSleep(); currentOperationAbortController = null; ResumeState.reset(); }
+        } finally { UI.clearPasswords(); System.allowSleep(); currentOperationAbortController = null; ResumeState.reset(); pwd = null; filesToExtract = []; }
     });
 </script>
 </body>
