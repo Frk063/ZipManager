@@ -17,7 +17,6 @@ self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then((cache) => {
-                console.log('[Service Worker] Mise en cache des ressources v2.1.3');
                 return cache.addAll(ASSETS_TO_CACHE);
             })
             .then(() => self.skipWaiting()) // Force l'activation immédiate de la v2.1.3
@@ -31,7 +30,6 @@ self.addEventListener('activate', (event) => {
             return Promise.all(
                 cacheNames.map((cacheName) => {
                     if (cacheName !== CACHE_NAME) {
-                        console.log(`[Service Worker] Suppression de l'ancien cache: ${cacheName}`);
                         return caches.delete(cacheName);
                     }
                 })
