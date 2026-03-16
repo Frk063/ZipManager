@@ -737,6 +737,7 @@
         }
 
         currentOperationAbortController = new AbortController(); let zipReader, currentExtractWritable;
+        const directoryHandleCache = new Map();
 
         try {
             await System.preventSleep(); let mainReader;
@@ -760,13 +761,23 @@
                     if (!safeName) throw new Error("Chemin corrompu.");
                     if (ResumeState.isActive && ResumeState.okPaths.has(safeName)) { processed++; skipped++; UI.updateProgress(Math.round((processed / total) * 100), `${processed} / ${total}`); continue; }
                     
+                    let currentHandle = dirHandle;
                     try {
                         if (action === 'Test') {
                             await entry.getData(new zip.TextWriter()); Logger.addEntry(safeName, entry.uncompressedSize, "TEST_OK");
                             if (processed % 10 === 0) UI.log(`[CRC32 OK] ${entry.filename}`);
                         } else if (action === 'Extraction') {
-                            const pathParts = safeName.split('/'); const fileName = pathParts.pop(); let currentHandle = dirHandle;
-                            for (const folder of pathParts) { currentHandle = await currentHandle.getDirectoryHandle(folder, { create: true }); }
+                            const pathParts = safeName.split('/'); const fileName = pathParts.pop();
+                            let currentPath = "";
+                            for (const folder of pathParts) {
+                                currentPath += (currentPath ? "/" : "") + folder;
+                                if (directoryHandleCache.has(currentPath)) {
+                                    currentHandle = directoryHandleCache.get(currentPath);
+                                } else {
+                                    currentHandle = await currentHandle.getDirectoryHandle(folder, { create: true });
+                                    directoryHandleCache.set(currentPath, currentHandle);
+                                }
+                            }
                             currentExtractWritable = await (await currentHandle.getFileHandle(fileName + '.tmp', { create: true })).createWritable();
                             // Encapsulation stricte ici aussi !
                             await entry.getData(new zip.WritableStreamWriter(currentExtractWritable)); 
@@ -788,10 +799,9 @@
                         if (err.message.toLowerCase().includes('password')) throw new Error("Mot de passe incorrect.");
                         UI.log(`[ERREUR] ${entry.filename}`, true); 
                         if (currentExtractWritable) { try { await currentExtractWritable.abort(); currentExtractWritable = null; } catch(e) {} }
-                        if (action === 'Extraction' && dirHandle) {
+                        if (action === 'Extraction' && currentHandle) {
                             try {
-                                const pathParts = safeName.split('/'); const fileName = pathParts.pop(); let currentHandle = dirHandle;
-                                for (const folder of pathParts) { currentHandle = await currentHandle.getDirectoryHandle(folder); }
+                                const fileName = safeName.split('/').pop();
                                 await currentHandle.removeEntry(fileName + '.tmp');
                             } catch (e) {}
                         }
