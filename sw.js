@@ -2,7 +2,7 @@
 // SERVICE WORKER - ZIPMANAGER V2.1.3 (AIR-GAP)
 // =========================================================
 
-const CACHE_NAME = 'zipmanager-v2.1.3';
+const CACHE_NAME = 'zipmanager-v2.1.4';
 
 // Liste stricte des fichiers requis pour le mode hors-ligne
 const ASSETS_TO_CACHE = [
@@ -19,7 +19,7 @@ self.addEventListener('install', (event) => {
             .then((cache) => {
                 return cache.addAll(ASSETS_TO_CACHE);
             })
-            .then(() => self.skipWaiting()) // Force l'activation immédiate de la v2.1.3
+            .then(() => self.skipWaiting()) // Force l'activation immédiate de la v2.1.4
     );
 });
 
