@@ -608,7 +608,7 @@
                     if (action === 'PASS-THROUGH') {
                         const { readable, writable: streamWritable } = new TransformStream();
                         // Encapsulation stricte du flux d'entrée
-                        entry.getData(new zip.WritableStreamWriter(streamWritable), { password: pwd || null }).catch(e => { try { streamWritable.abort(e); } catch(err){} });
+                        entry.getData(new zip.WritableStreamWriter(streamWritable), { password: pwd || null }).catch(e => { try { streamWritable.abort(e); } catch(err){ console.error("[ERREUR FLUX] Échec de l'abandon du flux:", err); } });
 
                         try {
                             // Encapsulation stricte du flux de sortie
