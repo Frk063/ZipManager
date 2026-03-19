@@ -687,7 +687,7 @@
 
         } catch (err) {
             UI.log(`[CRASH] ${err.message}`, true);
-            if (writableStream) { try { await writableStream.abort(); } catch(e) {} }
+            if (writableStream) { try { await writableStream.abort(); } catch(e) { console.error('[CRASH] Stream abort failed:', e); } }
             if (dirHandle) {
                 if (splitSize > 0) {
                     for (let i = 1; i <= partCount; i++) {
