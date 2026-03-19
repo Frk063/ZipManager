@@ -25,6 +25,10 @@ Livrable : L'application met à disposition les fichiers `index.html` (interface
 - **Injections et Sanitization (Criticité : Faible) :**
   - *Problème / Constat :* L'application possédait déjà une fonction de type `sanitizeFileName()` qui gère les cas les plus fréquents pour l'évitement de Path Traversal ou Zip-Slip dans les noms de fichiers. La purge des DOM renforce encore cette sécurité.
 
+- **Absence de journalisation des erreurs d'interruption de flux (Criticité : Modérée) :**
+  - *Problème :* Les erreurs d'interruption (stream abortion) lors des opérations d'écriture/lecture de flux n'étaient pas correctement attrapées et journalisées dans l'interface ou la console, rendant difficile l'identification des défaillances silencieuses, des corruptions partielles, et favorisant l'épuisement des ressources (fuites de mémoire/descripteurs de fichiers).
+  - *Correctif :* L'application intercepte désormais explicitement les erreurs via des blocs `catch` dédiés (`streamWritable.abort(e)`, `currentExtractWritable.abort()`) et les trace via `console.error` et l'UI. Cela garantit une libération sûre des ressources en cas de crash, limitant l'impact des attaques par déni de service (DoS) et améliorant la résilience globale de l'application.
+
 ## 3. Cahier de test
 **Protocole pas-à-pas ultra précis de validation RedTeam :**
 
@@ -58,7 +62,7 @@ Livrable : L'application met à disposition les fichiers `index.html` (interface
 
 ## 4. RETEX / SWOT
 **Synthèse des forces, faiblesses, opportunités et menaces de cette version :**
-- **Strengths (Forces) :** Une solution légère, client-side uniquement, garantissant une absence de fuite réseau de la data brute. L'implémentation de `zip.js` dans le `index.html` est ingénieuse pour des environnements contraints. La journalisation en CSV intégrée est solide.
+- **Strengths (Forces) :** Une solution légère, client-side uniquement, garantissant une absence de fuite réseau de la data brute. L'implémentation de `zip.js` dans le `index.html` est ingénieuse pour des environnements contraints. La journalisation en CSV intégrée est solide. La gestion explicite du cycle de vie des flux (stream abortion errors) accroit la robustesse et la traçabilité lors d'opérations lourdes.
 - **Weaknesses (Faiblesses) :** Toute l'intelligence étant dans un seul fichier monolithique massif (la base64 de zip.js incluse dans l'`index.html`), le code s'avère difficile à maintenir ou à déboguer par les développeurs front.
 - **Opportunities (Opportunités) :** La version atomique et PWA sécurisée (Air-Gap + CRC32 + Purge RAM) peut être labellisée "Confidentialité Maximale" et déployée massivement sans infrastructure serveur.
 - **Threats (Menaces) :** L'OOM (Out-of-memory) sur le File System du navigateur (quota local limité) est préempté par une alerte mais peut causer le gel de navigateurs anciens. Les API WritableStream et FileSystem sont assujetties à des changements stricts dans les prochaines versions des navigateurs, imposant un suivi soutenu.

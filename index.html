@@ -608,7 +608,7 @@
                     if (action === 'PASS-THROUGH') {
                         const { readable, writable: streamWritable } = new TransformStream();
                         // Encapsulation stricte du flux d'entrée
-                        entry.getData(new zip.WritableStreamWriter(streamWritable), { password: pwd || null }).catch(e => { try { streamWritable.abort(e); } catch(err){ console.error('[CRASH] Stream abort failed:', err); } });
+                        entry.getData(new zip.WritableStreamWriter(streamWritable), { password: pwd || null }).catch(e => { try { streamWritable.abort(e); } catch(err){ console.error("[ERREUR FLUX] Échec de l'abandon du flux:", err); } });
 
                         try {
                             // Encapsulation stricte du flux de sortie
@@ -797,7 +797,7 @@
                         Logger.addEntry(safeName, entry.uncompressedSize, action === 'Test' ? "TEST_FAILED" : "EXTRACT_FAILED");
                         if (err.message.toLowerCase().includes('password')) throw new Error("Mot de passe incorrect.");
                         UI.log(`[ERREUR] ${entry.filename}`, true); 
-                        if (currentExtractWritable) { try { await currentExtractWritable.abort(); currentExtractWritable = null; } catch(e) { console.error('[CRASH] Stream abort failed:', e); } }
+                        if (currentExtractWritable) { try { await currentExtractWritable.abort(); currentExtractWritable = null; } catch(e) { console.error("[Erreur d'abandon de flux]", e); } }
                         if (action === 'Extraction' && currentHandle) {
                             try {
                                 const fileName = safeName.split('/').pop();
@@ -812,8 +812,8 @@
 
         } catch (err) {
             UI.log(`[CRASH] ${err.message}`, true);
-            if (currentExtractWritable) { try { await currentExtractWritable.abort(); } catch(e) { console.error('[CRASH] Stream abort failed:', e); } }
-            if (zipReader) { try { await zipReader.close(); } catch(e) { console.error('[CRASH] Stream close failed:', e); } }
+            if (currentExtractWritable) { try { await currentExtractWritable.abort(); } catch(e) { console.error("[Erreur d'abandon de flux]", e); } }
+            if (zipReader) { try { await zipReader.close(); } catch(e) {} }
             Logger.exportAndShowModal("Interrompu", `Échec : ${err.message}`, true);
         } finally { UI.clearPasswords(); System.allowSleep(); currentOperationAbortController = null; ResumeState.reset(); pwd = null; filesToExtract = []; }
     });
